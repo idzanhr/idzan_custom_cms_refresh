@@ -1,0 +1,13 @@
+pagespeed RewriteLevel PassThrough;
+pagespeed HonorCsp on;
+# Replaces the default "X-Page-Speed: <version>" header, so visitors don't see the module's version.
+pagespeed XHeaderValue "on";
+pagespeed Disallow "*/studio-CHANGE-ME/*";
+pagespeed EnableFilters collapse_whitespace,remove_comments,remove_quotes,trim_urls;
+pagespeed EnableFilters rewrite_css,rewrite_javascript_external,combine_css,extend_cache_css,extend_cache_scripts;
+# Images are handled by the CMS: AVIF + WebP copies in several sizes, offered with <picture> and the original as
+# fallback. PageSpeed's own image rewriting would fight that (and doesn't understand <source> sizes), so it stays off.
+pagespeed DisableFilters rewrite_images,recompress_images,convert_jpeg_to_webp,convert_to_webp_lossless,convert_to_webp_animated,convert_jpeg_to_progressive,convert_png_to_jpeg,strip_image_meta_data,resize_images,resize_rendered_image_dimensions,responsive_images,inline_preview_images,resize_mobile_images,extend_cache_images;
+# Inline <script> blocks are left exactly as written: the CSP allows the light/dark script by its hash.
+pagespeed DisableFilters rewrite_javascript_inline;
+pagespeed DisableFilters lazyload_images,defer_javascript,inline_javascript,inline_css,prioritize_critical_css,inline_images,add_instrumentation,insert_dns_prefetch,hint_preload_subresources,sprite_images;

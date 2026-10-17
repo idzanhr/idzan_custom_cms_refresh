@@ -1,0 +1,44 @@
+# robots.txt for domain.com: who may read this site.
+# Only the bots named below are welcome; every other bot is asked to stay away (last group).
+# This is a polite request: good bots follow it, the server blocks the worst ones anyway.
+# The Sitemap line is added automatically. Never list the admin address here.
+# Keep each group's lines together: a comment-only or empty line ends a group for some readers.
+
+# Search engines and AI assistants
+User-agent: Googlebot            # Google Search
+User-agent: Google-Extended      # Google Gemini
+User-agent: bingbot              # Bing and Microsoft Copilot
+User-agent: DuckDuckBot          # DuckDuckGo search
+User-agent: DuckAssistBot        # DuckDuckGo AI answers (DuckAssist / Duck.ai); not used for AI training
+User-agent: Applebot             # Apple Spotlight / Siri search
+User-agent: Applebot-Extended    # Apple Intelligence
+User-agent: ClaudeBot            # Anthropic Claude (training)
+User-agent: Claude-SearchBot     # Anthropic Claude (search)
+User-agent: Claude-User          # Anthropic Claude (page a user asked for)
+User-agent: GPTBot               # OpenAI ChatGPT (training)
+User-agent: OAI-SearchBot        # OpenAI ChatGPT (search)
+User-agent: ChatGPT-User         # OpenAI ChatGPT (page a user asked for)
+User-agent: PerplexityBot        # Perplexity (search)
+User-agent: Perplexity-User      # Perplexity (page a user asked for)
+User-agent: archive.org_bot      # Internet Archive / Wayback Machine (archived copies of pages)
+User-agent: ia_archiver          # Internet Archive, older name
+Allow: /
+
+# Link previews when a page is shared (the share buttons on posts)
+User-agent: facebookexternalhit  # Facebook, Instagram, Threads, Messenger
+User-agent: facebookcatalog      # Facebook / Instagram
+User-agent: Twitterbot           # X
+User-agent: LinkedInBot          # LinkedIn
+User-agent: WhatsApp             # WhatsApp
+User-agent: TelegramBot          # Telegram
+User-agent: Mastodon             # Mastodon (also checks the rel="me" link)
+User-agent: Discordbot           # Discord
+User-agent: Slackbot             # Slack
+Allow: /
+
+# Every other bot: AI training and scraping (TikTok/Bytespider, Common Crawl, Meta AI, Amazon...),
+# SEO tools, and other search engines (Yandex, Baidu, ...)
+User-agent: *
+Disallow: /
+
+Sitemap: https://domain.com/sitemap.xml
