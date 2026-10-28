@@ -80,7 +80,48 @@ function enabled_langs(): array
 
 function lang_html(string $l): string
 {
-    return $l === 'en' ? 'en' : (LANGS[$l][1] ?? $l);
+    return $l === 'en' ? 'en-US' : (LANGS[$l][1] ?? $l);   // the original is US English
+}
+
+/**
+ * Languages shown on their own domain (Languages → Own domains), e.g. ['bs' => 'https://domain.ba'].
+ * The site is still built once: domain.ba serves the files of /bs/, and domain.com/bs/ keeps working as a copy.
+ */
+function lang_domains(): array
+{
+    static $cache = null;
+    if (isset($GLOBALS['LANG_DOMAINS_RESET'])) { $cache = null; unset($GLOBALS['LANG_DOMAINS_RESET']); }
+    if ($cache !== null) return $cache;
+    $raw = json_decode((string)setting('lang_domains', ''), true);
+    $cache = [];
+    if (is_array($raw)) foreach ($raw as $l => $d) {
+        $d = rtrim(strtolower(trim((string)$d)), '/');
+        if (isset(LANGS[$l]) && preg_match('~^https://[a-z0-9.-]+\.[a-z]{2,}$~', $d) && in_array($l, enabled_langs(), true)) $cache[$l] = $d;
+    }
+    return $cache;
+}
+
+/** 'https://domain.ba' for a language on its own domain, '' otherwise. */
+function lang_domain(string $l): string
+{
+    return lang_domains()[$l] ?? '';
+}
+
+/** Full address of a page in a language (for hreflang, sitemap, canonical): own domain or this site + /hr/…. */
+function lang_abs(string $path, string $l): string
+{
+    $d = lang_domain($l);
+    return $d !== '' ? $d . $path : abs_url(rtrim((string)cfg('base_path', ''), '/') . lang_path($path, $l));
+}
+
+/**
+ * Link from the page being built to a page in language $l. Stays relative (works on domain.com and its mirrors
+ * domain.eu / domain.com.hr) unless one side is on its own domain.
+ */
+function lang_link(string $path, string $l): string
+{
+    if (lang_domain($l) !== '' || lang_domain(lang()) !== '') return lang_abs($path, $l);
+    return rtrim((string)cfg('base_path', ''), '/') . lang_path($path, $l);
 }
 
 /** Address of a page in a language: '/blog/' → '/hr/blog/'. */
@@ -202,13 +243,16 @@ function lang_switcher(string $basePath): string
     if (!$langs) return '';
     $cur = lang();
     $all = array_merge(['en' => 'English'], array_combine($langs, array_map(fn($l) => LANGS[$l][0], $langs)));
+    // Flags come from Admin → Icons (flag-en.svg, flag-hr.svg…), drawn inline like every licensed icon.
+    $flag = fn(string $code) => function_exists('icon_custom') ? (icon_custom('flag-' . $code, 'flag') ?? '') : '';
+    $curFlag = $flag($cur);
     $h = '<div class="lang" data-lang-switch><button class="lang-btn" type="button" aria-expanded="false" aria-controls="langmenu">'
-        . '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 3 12 3z"/></svg>'
+        . ($curFlag !== '' ? $curFlag : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 3 12 3z"/></svg>')
         . '<span>' . e(strtoupper($cur)) . '</span><span class="sr"> — ' . e(t('Language')) . ': ' . e($all[$cur]) . '</span></button>'
         . '<ul class="lang-menu" id="langmenu" hidden>';
     foreach ($all as $code => $name) {
-        $h .= '<li><a href="' . e(rtrim((string)cfg('base_path', ''), '/') . lang_path($basePath, $code)) . '" hreflang="' . e(lang_html($code)) . '" lang="' . e(lang_html($code)) . '" data-lang="' . e($code) . '"'
-            . ($code === $cur ? ' aria-current="true"' : '') . '>' . e($name) . '</a></li>';
+        $h .= '<li><a href="' . e(lang_link($basePath, $code)) . '" hreflang="' . e(lang_html($code)) . '" lang="' . e(lang_html($code)) . '" data-lang="' . e($code) . '"'
+            . ($code === $cur ? ' aria-current="true"' : '') . '>' . $flag($code) . '<span>' . e($name) . '</span></a></li>';
     }
     return $h . '</ul></div>';
 }
@@ -218,10 +262,9 @@ function hreflang_tags(string $basePath): string
 {
     $langs = enabled_langs();
     if (!$langs) return '';
-    $base = rtrim((string)cfg('base_path', ''), '/');
-    $h = '<link rel="alternate" hreflang="en" href="' . e(abs_url($base . $basePath)) . '">' . "\n";
-    foreach ($langs as $l) $h .= '<link rel="alternate" hreflang="' . e(lang_html($l)) . '" href="' . e(abs_url($base . lang_path($basePath, $l))) . '">' . "\n";
-    return $h . '<link rel="alternate" hreflang="x-default" href="' . e(abs_url($base . $basePath)) . '">' . "\n";
+    $h = '<link rel="alternate" hreflang="' . lang_html('en') . '" href="' . e(lang_abs($basePath, 'en')) . '">' . "\n";
+    foreach ($langs as $l) $h .= '<link rel="alternate" hreflang="' . e(lang_html($l)) . '" href="' . e(lang_abs($basePath, $l)) . '">' . "\n";
+    return $h . '<link rel="alternate" hreflang="x-default" href="' . e(lang_abs($basePath, 'en')) . '">' . "\n";
 }
 
 /** Small note on translated pages (Admin → Languages: "Show a note…"), with a link to the English original. */
@@ -229,9 +272,9 @@ function machine_note(): string
 {
     $l = lang();
     if ($l === 'en' || setting('tr_note', '1') !== '1') return '';
-    $en = rtrim((string)cfg('base_path', ''), '/') . ($GLOBALS['BASE_PATH'] ?? '/');
+    $en = lang_link($GLOBALS['BASE_PATH'] ?? '/', 'en');
     return '<p class="wrap tr-note">' . e(t('This page was translated automatically from English.'))
-        . ' <a href="' . e($en) . '" hreflang="en" lang="en" data-lang="en">' . e(t('Read the original in English')) . '</a></p>';
+        . ' <a href="' . e($en) . '" hreflang="en-US" lang="en-US" data-lang="en">' . e(t('Read the original in English')) . '</a></p>';
 }
 
 /**
@@ -250,6 +293,7 @@ function lang_rewrite_links(string $html, string $l): string
         return (string)preg_replace_callback('~\bhref="(' . preg_quote($site, '~') . ')?(' . preg_quote($base, '~') . ')(/[^"]*)"~', function ($h) use ($l) {
             $path = html_entity_decode($h[3], ENT_QUOTES);
             if (!is_page_path(strtok($path, '?#') ?: '/')) return $h[0];
+            if (($d = lang_domain($l)) !== '') return 'href="' . e($d . $path) . '"';
             return 'href="' . $h[1] . $h[2] . e(lang_path($path, $l)) . '"';
         }, $tag, 1);
     }, $html);

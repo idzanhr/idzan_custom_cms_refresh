@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('ROOT', dirname(__DIR__));
 /** Shown at the bottom of every admin page, so you can see which code the server runs. */
-const CMS_VERSION = '2026.10.17-28 (robots.txt: Internet Archive)';
+const CMS_VERSION = '2026.10.23-30 (image copies fixed)';
 
 $configFile = ROOT . '/config.php';
 if (!is_file($configFile)) {

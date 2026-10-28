@@ -31,7 +31,7 @@ const CONTACT_ICON_OPTIONS = ['' => 'Automatic (from the address)', 'protonmail'
 const THEME_DEFAULTS = ['dark' => 'Dark first (brand look), visitors can switch to light', 'system' => 'Follow the visitor\'s device setting'];
 
 const ROBOTS_DEFAULT = <<<'TXT'
-# robots.txt for idzan.hr: who may read this site.
+# robots.txt for domain.com: who may read this site.
 # Only the bots named below are welcome; every other bot is asked to stay away (last group).
 # This is a polite request: good bots follow it, the server blocks the worst ones anyway.
 # The Sitemap line is added automatically. Never list the admin address here.
@@ -114,7 +114,7 @@ function entities(): array
             'fields' => [
                 'title'          => ['type' => 'text', 'label' => 'Project title', 'required' => true],
                 'slug'           => ['type' => 'slug', 'label' => 'URL slug', 'from' => 'title', 'help' => 'Address: /project/your-slug/'],
-                'client'         => ['type' => 'text', 'label' => 'Client (for whom)', 'help' => 'e.g. Savio, obrt za poduku i uslužne djelatnosti'],
+                'client'         => ['type' => 'text', 'label' => 'Client (for whom)', 'help' => 'e.g. Example Client Ltd.'],
                 'started_on'     => ['type' => 'date', 'label' => 'Started'],
                 'url'            => ['type' => 'url', 'label' => 'Project URL', 'help' => 'Opens in a new tab on the site.'],
                 'services'       => ['type' => 'terms', 'taxonomy' => 'service', 'label' => 'Service provided'],
@@ -187,9 +187,9 @@ function entities(): array
             'fields' => [
                 'title'          => ['type' => 'text', 'label' => 'Title', 'required' => true],
                 'slug'           => ['type' => 'slug', 'label' => 'URL slug', 'from' => 'title', 'help' => 'Address: /affiliate/your-slug/'],
-                'company_name'   => ['type' => 'text', 'label' => 'Company', 'help' => 'e.g. Hetzner Online GmbH'],
+                'company_name'   => ['type' => 'text', 'label' => 'Company', 'help' => 'e.g. Example Hosting Ltd.'],
                 'company_url'    => ['type' => 'url', 'label' => 'Company website', 'help' => 'Official site, linked from the company name.'],
-                'link_url'       => ['type' => 'url', 'label' => 'Affiliate / sponsorship link', 'help' => 'Your tracked link (e.g. https://dje.ba/hetzner-online). Shown as “Visit Site”, opens in a new tab.'],
+                'link_url'       => ['type' => 'url', 'label' => 'Affiliate / sponsorship link', 'help' => 'Your tracked link (e.g. https://example.com/?ref=your-id). Shown as “Visit Site”, opens in a new tab.'],
                 'kind'           => ['type' => 'select', 'label' => 'Type', 'options' => AFFILIATE_KINDS, 'default' => 'affiliate'],
                 'has_code'       => ['type' => 'select', 'label' => 'Promo code', 'options' => PROMO_OPTIONS, 'default' => 'no'],
                 'promo_code'     => ['type' => 'text', 'label' => 'Code', 'enabled_when' => ['has_code', 'yes'], 'raw' => true,
@@ -245,9 +245,9 @@ function settings_fields(): array
 {
     return [
         'Identity' => [
-            'site_title'       => ['type' => 'text', 'label' => 'Site title / your name', 'default' => 'Marko Idžan'],
+            'site_title'       => ['type' => 'text', 'label' => 'Site title / your name', 'default' => 'Your Name'],
             'tagline'          => ['type' => 'text', 'label' => 'Tagline (homepage)', 'default' => 'Web Excellence: Design, Manage, Support'],
-            'meta_description' => ['type' => 'textarea', 'label' => 'Default meta description', 'rows' => 2, 'default' => 'Marko Idžan Web Excellence: Design, Manage, Support'],
+            'meta_description' => ['type' => 'textarea', 'label' => 'Default meta description', 'rows' => 2, 'default' => 'Portfolio and blog'],
             'profile_image'    => ['type' => 'image', 'label' => 'Profile picture (homepage & About)', 'alt' => 'profile_alt'],
             'og_image'         => ['type' => 'image', 'label' => 'Social sharing image (Open Graph)'],
             'favicon'          => ['type' => 'image', 'label' => 'Favicon (your photo or logo, at least 512×512)', 'help' => 'Browser tab, bookmark and phone home-screen icons are all made from this one image (centre square).'],
@@ -274,10 +274,10 @@ function settings_fields(): array
             'color_warning'   => ['type' => 'color', 'label' => 'Warning box', 'default' => '#DA232C', 'help' => 'Red box with white text (e.g. unsolicited proposals on Contact).'],
         ],
         'Links & footer' => [
-            'mastodon_url'    => ['type' => 'url', 'label' => 'Mastodon profile (invisible rel="me" verification only — not shown on the site)', 'default' => 'https://mastodon.social/@idzan_hr'],
-            'twitter_handle'  => ['type' => 'text', 'label' => 'X/Twitter handle for share cards', 'default' => '@idzan_hr'],
+            'mastodon_url'    => ['type' => 'url', 'label' => 'Mastodon profile (invisible rel="me" verification only — not shown on the site)', 'default' => ''],
+            'twitter_handle'  => ['type' => 'text', 'label' => 'X/Twitter handle for share cards', 'default' => ''],
             'footer_links'    => ['type' => 'textarea', 'label' => 'Footer links — one per line: Label | URL', 'rows' => 4,
-                                  'default' => "Social Networks of Author | https://socials.idzan.hr\nMusical Works of Author | https://music.idzan.hr"],
+                                  'default' => ''],
             'copyright_from'  => ['type' => 'text', 'label' => 'Copyright start year', 'default' => '2010'],
             'footer_note'     => ['type' => 'richtext', 'label' => 'Footer note'],
         ],

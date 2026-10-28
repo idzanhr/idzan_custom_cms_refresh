@@ -225,10 +225,14 @@
   // Coming back: open the page in the language chosen before, if this page has that version.
   var want = get();
   if (want && want !== here) {
-    var alt = document.querySelector('link[rel="alternate"][hreflang^="' + want + '"]');
+    // The header's language menu: links to the main site stay on this address (domain.eu/hr/…), links to a
+    // language on its own domain are full addresses.
+    var alt = document.querySelector('a[data-lang="' + want + '"]');
     if (alt) {
-      var to = new URL(alt.href, location.href);   // same site and host, just the language's path
-      if (to.pathname !== location.pathname) { location.replace(to.pathname + location.search + location.hash); return; }
+      var to = new URL(alt.href, location.href);
+      // Only within this address (domain.com ↔ domain.com/hr/): a language on its own domain (domain.ba) is never forced,
+      // so typing a country domain always shows that country's language.
+      if (to.host === location.host && to.pathname !== location.pathname) { location.replace(to.pathname + location.search + location.hash); return; }
     }
   }
 

@@ -155,7 +155,7 @@ function admin_head(string $title, string $active = ''): void
 <body data-csrf="<?= e(csrf_token()) ?>" data-upload="<?= e(admin_url('upload.php')) ?>" data-media="<?= e(admin_url('media.php', ['format' => 'json'])) ?>">
 <div class="shell">
   <aside class="side">
-    <a class="brand" href="<?= e(admin_url('index.php')) ?>"><?= e(setting('site_title', 'Marko Idžan')) ?><small>CMS</small></a>
+    <a class="brand" href="<?= e(admin_url('index.php')) ?>"><?= e(setting('site_title', 'Your Name')) ?><small>CMS</small></a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="adminnav">Menu</button>
     <nav id="adminnav" aria-label="Admin menu">
       <ul class="menu">

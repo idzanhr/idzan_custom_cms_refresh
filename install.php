@@ -2,7 +2,7 @@
 declare(strict_types=1);
 /**
  * One-time installer. Creates the MySQL tables, your admin account and (optionally)
- * pre-fills the content from the current domain.com. Locks itself once an admin exists —
+ * pre-fills example content. Locks itself once an admin exists —
  * delete this file afterwards anyway.
  */
 require __DIR__ . '/inc/bootstrap.php';
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step !== 'done') {
                     require ROOT . '/install/seed.php';
                     seed_content();
                 } else {
-                    save_setting('site_title', 'Marko Idžan');
+                    save_setting('site_title', 'Your Name');
                     q("INSERT INTO pages (title, slug, content, status, in_footer, footer_order, created_at, updated_at) VALUES ('Contact', 'contact', '<p>Find me on my social networks.</p>', 'published', 0, 0, ?, ?)", [now(), now()]);
                 }
                 foreach (['uploads', 'storage'] as $d) if (!is_dir(ROOT . "/{$d}")) @mkdir(ROOT . "/{$d}", 0775, true);
@@ -138,7 +138,7 @@ $checks = [
       <label for="un">Username</label><input id="un" name="username" value="<?= e($_POST['username'] ?? '') ?>" required autocomplete="username">
       <label for="pw">Password (12+ characters)</label><input id="pw" name="password" type="password" minlength="12" required autocomplete="new-password">
       <label for="pw2">Repeat password</label><input id="pw2" name="password2" type="password" required autocomplete="new-password">
-      <label class="check"><input type="checkbox" name="seed" value="1" checked> Pre-fill with the current domain.com content (about, experience, education, certifications, projects, footer pages)</label>
+      <label class="check"><input type="checkbox" name="seed" value="1" checked> Pre-fill with example content (about, experience, education, a project, a post, legal pages)</label>
       <button class="btn primary" type="submit">Install</button>
     </form>
   <?php endif ?>

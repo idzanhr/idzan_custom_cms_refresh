@@ -474,18 +474,61 @@
   'use strict';
   var b = document.querySelector('[data-convert]');
   if (!b) return;
+  var retry = document.querySelector('[data-convert-retry]');
   var status = document.querySelector('[data-convert-status]'), count = document.querySelector('[data-convert-count]');
+  var list = document.querySelector('[data-convert-skipped]');
+  var errors = 0, again = false;
+  function stop(msg) { status.textContent = msg; b.disabled = false; if (retry) retry.disabled = false; }
+  function parse(text) {                       // JSON, even if PHP printed a warning in front of it
+    try { return JSON.parse(text); } catch (e) {}
+    var k = text.lastIndexOf('{"');
+    if (k >= 0) { try { return JSON.parse(text.slice(k)); } catch (e) {} }
+    return null;
+  }
+  function showSkipped(j) {
+    if (!list || !j.skipped_list) return;
+    list.textContent = '';
+    j.skipped_list.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; list.appendChild(li); });
+    list.hidden = !j.skipped_list.length;
+    var d = list.closest('details'); if (d && j.skipped_list.length) d.open = true;
+  }
   function round() {
     var fd = new FormData(); fd.append('_csrf', document.body.dataset.csrf); fd.append('action', 'convert');
+    if (again) { fd.append('retry_skipped', '1'); again = false; }
     fetch(b.getAttribute('data-convert'), { method: 'POST', body: fd, credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        count.textContent = j.done + ' of ' + j.total;
-        if (j.done >= j.total) { status.textContent = 'All copies made. They appear on the site with the next rebuild.'; return; }
-        if (!j.made) { status.textContent = 'Some images could not be converted (see the server error log).'; b.disabled = false; return; }
-        status.textContent = 'Working… ' + j.made + ' copies made in the last round (keep this page open)'; round();
+      .then(function (r) {
+        return r.text().then(function (t) {
+          if (r.redirected && /login/.test(r.url)) throw new Error('signed-out');
+          var j = parse(t);
+          if (!j) throw new Error('HTTP ' + r.status + (r.status === 200 ? ' (not a JSON answer)' : ''));
+          return j;
+        });
       })
-      .catch(function () { status.textContent = 'Connection problem — click again to continue.'; b.disabled = false; });
+      .then(function (j) {
+        if (j.error) {                         // PHP stopped on an image: it is now skipped, carry on
+          if (++errors > 5) return stop('Stopped: ' + j.error + '. Check the PHP error log (CloudPanel → Logs).');
+          status.textContent = 'An image was too much for the server and is skipped; continuing…';
+          return setTimeout(round, 1500);
+        }
+        errors = 0;
+        count.textContent = j.done + ' of ' + j.total;
+        showSkipped(j);
+        var skipped = j.skipped || 0;
+        if (j.done + skipped >= j.total) {
+          return stop(skipped ? 'Done. ' + skipped + ' image' + (skipped > 1 ? 's were' : ' was') + ' skipped (see the list). The copies appear on the site with the next rebuild.'
+                              : 'All copies made. They appear on the site with the next rebuild.');
+        }
+        if (!j.made) return stop('No copies could be made in this round. Check the PHP error log (CloudPanel → Logs).');
+        status.textContent = 'Working… ' + j.made + ' copies made in the last round (keep this page open)';
+        round();
+      })
+      .catch(function (e) {
+        if (e && e.message === 'signed-out') return stop('You were signed out. Reload the page, sign in and click again.');
+        if (++errors <= 3) { status.textContent = 'No answer (' + (e && e.message ? e.message : 'connection') + '), trying again…'; return setTimeout(round, 3000); }
+        stop('No answer from the server (' + (e && e.message ? e.message : 'connection') + '). Click again to continue.');
+      });
   }
-  b.addEventListener('click', function () { b.disabled = true; status.textContent = 'Working… (keep this page open)'; round(); });
+  function start() { errors = 0; b.disabled = true; if (retry) retry.disabled = true; status.textContent = 'Working… (keep this page open)'; round(); }
+  b.addEventListener('click', start);
+  if (retry) retry.addEventListener('click', function () { again = true; start(); });
 })();

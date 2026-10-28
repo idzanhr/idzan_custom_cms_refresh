@@ -1,0 +1,15 @@
+# Server-specific and generated files: never commit these.
+config.php
+public/*
+!public/uploads/
+public/uploads/*
+!public/uploads/.keep
+storage/*
+!storage/.htaccess
+!storage/.keep
+import/*
+!import/.htaccess
+!import/README.txt
+*.sqlite
+*.log
+.DS_Store

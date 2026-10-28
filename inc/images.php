@@ -12,6 +12,93 @@ const IMG_WIDTHS = [240, 360, 480, 720, 960, 1280];     // header, card and port
 const IMG_CONTENT_WIDTHS = [480, 960, 1600];            // images in page text
 const IMG_CONTENT_SIZES = '(max-width: 760px) calc(100vw - 32px), 760px';
 const IMG_QUALITY = ['avif' => 52, 'webp' => 80];
+const IMG_FULL_MAX = 2560;   // the largest copy made; bigger originals (old WordPress photos) aren't copied at full size
+
+/** Widths to make for an image $w0 wide: the requested ones that are clearly smaller, plus the largest (≤ IMG_FULL_MAX). */
+function img_widths(int $w0, array $widths): array
+{
+    $top = min($w0, (int)cfg('image_full_max', IMG_FULL_MAX));
+    $want = array_values(array_filter($widths, fn($w) => $w < $top * 0.9));
+    $want[] = $top;
+    return $want;
+}
+
+/* ---- images that can't be converted on this server (too large, broken, PHP stopped) ---- */
+
+function img_failed_file(): string { return ROOT . '/storage/img-failed.json'; }
+
+/** ['uploads/…' => 'reason'] — skipped by builds and by "Make the missing copies now" until retried. */
+function img_failed(): array
+{
+    if (!array_key_exists('IMG_FAILED', $GLOBALS)) {
+        $GLOBALS['IMG_FAILED'] = is_file(img_failed_file()) ? (json_decode((string)@file_get_contents(img_failed_file()), true) ?: []) : [];
+        // A request that died in the middle of an image (killed by the server) leaves this note behind.
+        $w = ROOT . '/storage/img-working.txt';
+        if (is_file($w) && filemtime($w) < time() - 600 && ($rel = trim((string)@file_get_contents($w))) !== '') {
+            $GLOBALS['IMG_FAILED'][$rel] = 'PHP stopped while converting it';
+            @unlink($w);
+            @file_put_contents(img_failed_file(), json_encode($GLOBALS['IMG_FAILED'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        }
+    }
+    return $GLOBALS['IMG_FAILED'];
+}
+
+function img_fail(string $rel, string $why): void
+{
+    img_failed();
+    $GLOBALS['IMG_FAILED'][$rel] = $why;
+    @file_put_contents(img_failed_file(), json_encode($GLOBALS['IMG_FAILED'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    error_log('[cms] image skipped (' . $rel . '): ' . $why);
+}
+
+/** "Try skipped images again". */
+function img_failed_reset(): void
+{
+    @unlink(img_failed_file());
+    $GLOBALS['IMG_FAILED'] = [];
+}
+
+/**
+ * Marks the image being converted. If PHP dies (memory or time limit), the shutdown handler records it as
+ * skipped, so the next round or build moves on instead of dying on the same picture again.
+ */
+function img_working(?string $rel): void
+{
+    $w = ROOT . '/storage/img-working.txt';
+    $GLOBALS['IMG_WORKING'] = $rel;
+    if ($rel === null) { @unlink($w); return; }
+    @file_put_contents($w, $rel);
+    if (empty($GLOBALS['IMG_SHUTDOWN'])) {
+        $GLOBALS['IMG_SHUTDOWN'] = true;
+        register_shutdown_function(function () {
+            $rel = $GLOBALS['IMG_WORKING'] ?? null;
+            if ($rel === null) return;
+            $err = error_get_last();
+            $why = $err && str_contains((string)$err['message'], 'memory') ? 'too large for PHP memory'
+                 : ($err && str_contains((string)$err['message'], 'execution time') ? 'took longer than PHP allows' : 'PHP stopped while converting it');
+            img_fail($rel, $why);
+            @unlink(ROOT . '/storage/img-working.txt');
+        });
+    }
+}
+
+/** Makes room in PHP memory for an image of $w×$h (GD needs about 5 bytes a pixel, plus the scaled copy). */
+function img_memory_ok(int $w, int $h): bool
+{
+    $need = (int)($w * $h * 5 * 1.6) + memory_get_usage() + 32 * 1048576;
+    $lim = img_bytes((string)ini_get('memory_limit'));
+    if ($lim < 0 || $need <= $lim) return true;
+    if ($need <= 1024 * 1048576 && @ini_set('memory_limit', (string)(int)ceil($need / 1048576) . 'M') !== false) return true;
+    return false;
+}
+
+function img_bytes(string $v): int
+{
+    $v = trim($v);
+    if ($v === '' || $v === '-1') return -1;
+    $n = (int)$v;
+    return match (strtolower(substr($v, -1))) { 'g' => $n * 1073741824, 'm' => $n * 1048576, 'k' => $n * 1024, default => $n };
+}
 
 /** How each format is encoded on this server: ['avif' => 'GD'|'Imagick'|'', 'webp' => …]. */
 function img_encoders(): array
@@ -94,6 +181,7 @@ function img_encode($im, int $w, string $fmt, string $file): bool
             $m->readImageBlob($png);
             $m->setImageFormat($fmt);
             $m->setImageCompressionQuality(IMG_QUALITY[$fmt]);
+            if ($fmt === 'avif') { $m->setOption('heic:speed', '8'); $m->setOption('avif:speed', '8'); }   // fast encoder setting (default is very slow)
             $m->stripImage();
             $ok = (bool)file_put_contents($tmp, $m->getImageBlob());
             $m->clear();
@@ -119,24 +207,33 @@ function img_sources(string $path, array $widths, bool $force = false): ?array
     $GLOBALS['IMG_DIMS'][$rel] = [$w0, $h0];
     $key = img_key($rel);
     $isWebp = ($info['mime'] ?? '') === 'image/webp';
-    $want = array_values(array_filter($widths, fn($w) => $w < $w0 * 0.9));
-    $want[] = $w0;
+    $want = img_widths($w0, $widths);
     $out = ['w' => $w0, 'h' => $h0, 'orig' => url('/' . $rel), 'avif' => [], 'webp' => []];
     $im = null;
+    $skip = !$force && isset(img_failed()[$rel]);    // couldn't be converted before: use what exists, make nothing
+    $tried = false;
     foreach (img_formats() as $fmt) {
         foreach ($want as $w) {
             if ($fmt === 'webp' && $isWebp && $w === $w0) { $out['webp'][$w] = url('/' . $rel); continue; }   // the original already is WebP
             $name = $key . '-' . $w . '.' . $fmt;
             $file = public_dir() . '/_img/' . $name;
             if (!is_file($file)) {
-                if (!$force && !img_budget_left()) continue;
-                $im ??= img_load($abs, (string)($info['mime'] ?? ''));
-                if (!$im || !img_encode($im, $w, $fmt, $file)) continue;
+                if ($skip || (!$force && !img_budget_left())) continue;
+                if (!$tried) {
+                    $tried = true;
+                    if (!img_memory_ok($w0, $h0)) { img_fail($rel, "too large for PHP memory ({$w0}×{$h0})"); $skip = true; continue; }
+                    img_working($rel);
+                    $im = img_load($abs, (string)($info['mime'] ?? ''));
+                    if (!$im) { img_working(null); img_fail($rel, 'the file could not be read'); $skip = true; continue; }
+                }
+                if (!$im) continue;
+                if (!img_encode($im, $w, $fmt, $file)) { img_working(null); img_fail($rel, strtoupper($fmt) . ' could not be written'); $skip = true; continue; }
                 $GLOBALS['IMG_MADE'] = ($GLOBALS['IMG_MADE'] ?? 0) + 1;
             }
             $out[$fmt][$w] = url('/_img/' . $name);
         }
     }
+    if ($tried) img_working(null);
     return $out;
 }
 
@@ -226,21 +323,22 @@ function modern_imgs(string $html): string
 
 /**
  * Media → "Make WebP/AVIF copies now": works through every uploaded image for up to $seconds.
- * Returns [images complete, images in total, copies made in this round].
+ * Returns [images complete, images in total, copies made in this round, ['uploads/…' => why skipped]].
  */
 function img_convert_all(float $seconds): array
 {
     require_once ROOT . '/inc/medialib.php';
     $GLOBALS['IMG_T0'] = microtime(true) - (float)cfg('image_variant_seconds', 20) + $seconds;
-    $done = 0; $total = 0; $GLOBALS['IMG_MADE'] = 0;
+    $done = 0; $total = 0; $skipped = []; $GLOBALS['IMG_MADE'] = 0;
     foreach (array_keys(media_files()) as $rel) {
         if (!preg_match('~\.(jpe?g|png|webp)$~i', $rel)) continue;
         $total++;
         img_sources($rel, IMG_WIDTHS);
         img_sources($rel, IMG_CONTENT_WIDTHS);
         if (img_complete($rel)) $done++;
+        elseif (isset(img_failed()[$rel])) $skipped[$rel] = img_failed()[$rel];
     }
-    return [$done, $total, (int)$GLOBALS['IMG_MADE']];
+    return [$done, $total, (int)$GLOBALS['IMG_MADE'], $skipped];
 }
 
 /** True when every copy of an image exists (all formats, all sizes). */
@@ -250,7 +348,7 @@ function img_complete(string $rel): bool
     $info = @getimagesize($abs);
     if (!$info) return true;
     $key = img_key($rel);
-    $ws = array_unique(array_merge(array_filter(array_merge(IMG_WIDTHS, IMG_CONTENT_WIDTHS), fn($w) => $w < $info[0] * 0.9), [$info[0]]));
+    $ws = array_unique(array_merge(img_widths($info[0], IMG_WIDTHS), img_widths($info[0], IMG_CONTENT_WIDTHS)));
     foreach (img_formats() as $fmt) foreach ($ws as $w) {
         if ($fmt === 'webp' && ($info['mime'] ?? '') === 'image/webp' && $w === $info[0]) continue;
         if (!is_file(public_dir() . '/_img/' . $key . '-' . $w . '.' . $fmt)) return false;
