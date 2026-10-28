@@ -55,10 +55,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(admin_url('media.php'));
     }
     if ($action === 'convert') {                       // step of "Make WebP/AVIF copies now" (admin.js repeats it)
-        @set_time_limit(120);
-        [$done, $total, $made] = img_convert_all(15);
+        @set_time_limit(180);
+        @ignore_user_abort(true);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['done' => $done, 'total' => $total, 'made' => $made]);
+        header('Cache-Control: no-store');
+        // If PHP dies on an image, still answer in JSON: the image is recorded as skipped and the next round moves on.
+        register_shutdown_function(function () {
+            if (!empty($GLOBALS['CONVERT_OK'])) return;
+            $err = error_get_last();
+            echo json_encode(['error' => 'PHP stopped: ' . (string)($err['message'] ?? 'unknown reason'), 'retry' => true]);
+        });
+        if (isset($_POST['retry_skipped'])) img_failed_reset();
+        [$done, $total, $made, $skipped] = img_convert_all(10);
+        $GLOBALS['CONVERT_OK'] = true;
+        $list = [];
+        foreach (array_slice($skipped, 0, 15, true) as $r => $why) $list[] = basename($r) . ' — ' . $why;
+        echo json_encode(['done' => $done, 'total' => $total, 'made' => $made, 'skipped' => count($skipped), 'skipped_list' => $list], JSON_UNESCAPED_UNICODE);
         exit;
     }
     if ($action === 'meta') {
@@ -150,14 +162,14 @@ admin_head('Media', 'media');
   <p>Some posts or pages still point to images at <code>/wp-content/uploads/</code> on the old WordPress site, mostly links wrapped around images. They break once WordPress is gone. This copies those files into Media and points everything at the copies.</p>
   <form method="post" class="inline-form"><?= csrf_field() ?><input type="hidden" name="action" value="fixwp">
     <label for="wpu">WordPress uploads folder on this server</label>
-    <input id="wpu" name="wp_uploads" value="<?= e($guess) ?>" placeholder="/home/SITEUSER/htdocs/idzan-wp_old/wp-content/uploads" required>
+    <input id="wpu" name="wp_uploads" value="<?= e($guess) ?>" placeholder="/home/SITEUSER/htdocs/wp_old/wp-content/uploads" required>
     <button class="btn primary" type="submit">Copy images and fix the addresses</button>
   </form>
 </section>
 <?php endif; endif ?>
 
-<?php $fmts = img_encoders(); $convTotal = 0; $convDone = 0;
-foreach (array_keys($files) as $r) { if (!preg_match('~\.(jpe?g|png|webp)$~i', $r)) continue; $convTotal++; if (img_complete($r)) $convDone++; } ?>
+<?php $fmts = img_encoders(); $convTotal = 0; $convDone = 0; $convSkipped = [];
+foreach (array_keys($files) as $r) { if (!preg_match('~\.(jpe?g|png|webp)$~i', $r)) continue; $convTotal++; if (img_complete($r)) $convDone++; elseif (isset(img_failed()[$r])) $convSkipped[$r] = img_failed()[$r]; } ?>
 <section class="panel formats-panel">
   <h2>Modern image formats</h2>
   <p class="help">Every uploaded JPG, PNG or WebP gets
@@ -165,7 +177,15 @@ foreach (array_keys($files) as $r) { if (!preg_match('~\.(jpe?g|png|webp)$~i', $
     <?= $fmts['webp'] ? '<strong>WebP</strong> (' . e($fmts['webp']) . ')' : '<span class="muted">no WebP</span>' ?> copies in several sizes. Pages offer them first and fall back to the original for older browsers. GIFs and SVGs stay as they are.</p>
   <?php if ($fmts['avif'] || $fmts['webp']): ?>
   <p><strong data-convert-count><?= $convDone ?> of <?= $convTotal ?></strong> images have all their copies. New uploads get full-size copies at once; the smaller sizes are made during the next rebuilds, or right now:</p>
-  <p><button class="btn" type="button" data-convert="<?= e(admin_url('media.php')) ?>"<?= $convDone >= $convTotal ? ' disabled' : '' ?>>Make the missing copies now</button> <span class="small muted" data-convert-status role="status" aria-live="polite"></span></p>
+  <p><button class="btn" type="button" data-convert="<?= e(admin_url('media.php')) ?>"<?= $convDone + count($convSkipped) >= $convTotal ? ' disabled' : '' ?>>Make the missing copies now</button>
+    <?php if ($convSkipped): ?><button class="btn" type="button" data-convert-retry>Try the skipped images again</button><?php endif ?>
+    <span class="small muted" data-convert-status role="status" aria-live="polite"></span></p>
+  <?php if ($convSkipped): ?>
+  <details class="small"><summary><?= count($convSkipped) ?> image<?= count($convSkipped) > 1 ? 's' : '' ?> skipped — they keep showing as the original file</summary>
+    <ul data-convert-skipped><?php foreach (array_slice($convSkipped, 0, 30, true) as $r => $why): ?><li><a href="<?= e(admin_url('media.php', ['edit' => $r])) ?>"><?= e(basename($r)) ?></a> — <?= e($why) ?></li><?php endforeach ?></ul>
+    <p class="help">Usually a very large photo from the old site. Replace it with a smaller copy (about 2400 px wide), or raise PHP's memory_limit in CloudPanel (PHP settings), then try again.</p>
+  </details>
+  <?php else: ?><ul data-convert-skipped class="small" hidden></ul><?php endif ?>
   <?php endif ?>
 </section>
 

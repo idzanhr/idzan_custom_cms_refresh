@@ -66,9 +66,10 @@ html[data-theme="light"] .theme-btn .i-moon { display: none; }
 .lang-menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; list-style: none; margin: 0; padding: 6px; background: var(--secondary);
   border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.5); z-index: 60; }
 .lang-menu[hidden] { display: none; }
-.lang-menu a { display: block; padding: 9px 12px; border-radius: 6px; color: var(--text); text-decoration: none; }
+.lang-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--text); text-decoration: none; }
 .lang-menu a:hover, .lang-menu a:focus-visible { background: var(--primary); color: var(--accent); }
 .lang-menu a[aria-current] { color: var(--accent); font-weight: 700; }
+.lang .flag { flex: none; width: auto; height: 15px; max-width: 24px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(127, 127, 127, .35); }
 .tr-note { margin: 14px auto 0; font-size: .88rem; color: var(--muted); }
 .tr-note a { color: var(--accent); }
 .menu-btn { display: none; background: none; border: 0; width: 44px; height: 44px; cursor: pointer; padding: 10px; order: 3; }

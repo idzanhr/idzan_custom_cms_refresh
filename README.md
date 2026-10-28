@@ -39,7 +39,7 @@ A replacement for the WordPress + Elementor setup: a PHP/MySQL admin for content
    ```
 5. Import your WordPress content. Put the export `.xml` in `import/`, and optionally `wp-content/uploads` as `import/uploads/` or `import/uploads.zip`:
    ```
-   sudo -u www-data php tools/import-wxr.php import/markoidan.WordPress.2026-10-13.xml --download
+   sudo -u www-data php tools/import-wxr.php import/your-site.WordPress.xml --download
    sudo -u www-data php tools/build.php --force
    ```
    `--download` fetches images that aren't in the backup from the live site, so run it while WordPress is still online.
@@ -135,5 +135,3 @@ Content types are defined in `inc/schema.php`. To add one (for example Skills or
 - Rich text runs through a whitelist sanitizer: scripts, inline event handlers and `javascript:` links are removed. Video embeds are limited to youtube-nocookie and Vimeo.
 - Uploads must be real images, are re-encoded (which strips EXIF/GPS data), and nothing in `uploads/` can execute.
 - Pages are sent with a strict Content-Security-Policy (`'self'` only).
-
-- Update security.txt with correct data and import into folder .well-data

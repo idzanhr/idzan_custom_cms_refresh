@@ -46,14 +46,19 @@ function indexnow_submit(): void
     foreach (array_keys($old) as $u) if (!array_key_exists($u, $now)) $changed[] = $u;   // removed: lets engines drop it
     if (!$changed) return;
 
-    $host = (string)parse_url((string)cfg('site_url'), PHP_URL_HOST);
+    // One request per domain (IndexNow wants every address in a request on the same host as "host"):
+    // domain.com, plus each language that has its own domain (domain.ba…). The key file answers on all of them.
+    $byHost = [];
+    foreach ($changed as $u) $byHost[strtolower((string)parse_url($u, PHP_URL_HOST))][] = $u;
     $key = indexnow_key();
     $ok = true; $code = 0; $sent = 0;
-    foreach (array_chunk($changed, 10000) as $chunk) {
-        $body = json_encode(['host' => $host, 'key' => $key, 'keyLocation' => abs_url('/' . $key . '.txt'), 'urlList' => array_values($chunk)], JSON_UNESCAPED_SLASHES);
-        [$code, $msg] = indexnow_post((string)cfg('indexnow_endpoint', INDEXNOW_ENDPOINT), $body);
-        if ($code !== 200 && $code !== 202) { $ok = false; break; }
-        $sent += count($chunk);
+    foreach ($byHost as $host => $urls) {
+        foreach (array_chunk($urls, 10000) as $chunk) {
+            $body = json_encode(['host' => $host, 'key' => $key, 'keyLocation' => 'https://' . $host . '/' . $key . '.txt', 'urlList' => array_values($chunk)], JSON_UNESCAPED_SLASHES);
+            [$code, $msg] = indexnow_post((string)cfg('indexnow_endpoint', INDEXNOW_ENDPOINT), $body);
+            if ($code !== 200 && $code !== 202) { $ok = false; break 2; }
+            $sent += count($chunk);
+        }
     }
     $why = [0 => 'no answer (network)', 400 => 'bad request', 403 => 'key not accepted yet (the key file must be reachable)', 422 => 'addresses don\'t match the site', 429 => 'too many submissions, try later'][$code] ?? ('HTTP ' . $code);
     save_setting('indexnow_last', json_encode(['at' => now(), 'ok' => $ok, 'count' => $ok ? $sent : count($changed), 'code' => $code, 'why' => $ok ? '' : $why]));

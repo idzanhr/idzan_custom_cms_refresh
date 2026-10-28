@@ -323,7 +323,7 @@ function robots_txt(): string
 function llms_txt(): string
 {
     $o = '# ' . s('site_title') . "\n\n> " . trim(preg_replace('~\s+~', ' ', strip_tags(s('tagline') ?: s('site_description')))) . "\n\n";
-    $o .= "Personal website and blog. Content is in English; translations: " . (enabled_langs() ? implode(', ', array_map(fn($l) => LANGS[$l][0] . ' (' . abs_url('/' . $l . '/') . ')', enabled_langs())) : 'none') . ".\n\n";
+    $o .= "Personal website and blog. Content is in English; translations: " . (enabled_langs() ? implode(', ', array_map(fn($l) => LANGS[$l][0] . ' (' . lang_abs('/', $l) . ')', enabled_langs())) : 'none') . ".\n\n";
     $o .= "## Pages\n\n";
     foreach ([['/', 'Home'], ['/about-me/', 'About me'], ['/projects/', 'Projects'], ['/blog/', 'Blog']] as [$p, $t]) $o .= '- [' . $t . '](' . abs_url($p) . ")\n";
     foreach (all('SELECT title, slug FROM pages WHERE ' . PUB . ' ORDER BY title') as $p) $o .= '- [' . $p['title'] . '](' . abs_url(url('/' . $p['slug'] . '/')) . ")\n";
@@ -844,7 +844,7 @@ function feed_xml(): string
     $x = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
         . '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>'
         . '<title>' . e(s('site_title')) . '</title><link>' . e(abs_url(url('/'))) . '</link>'
-        . '<description>' . e(s('tagline')) . '</description><language>en</language>'
+        . '<description>' . e(s('tagline')) . '</description><language>en-us</language>'
         . '<atom:link href="' . e(abs_url(url('/feed.xml'))) . '" rel="self" type="application/rss+xml"/>';
     foreach ($rows as $p) {
         $link = abs_url(url('/' . $p['slug'] . '/'));
@@ -891,7 +891,7 @@ function sitemap_xml(): string
         } catch (Throwable $e) { /* no translations table yet */ }
     }
     $base = rtrim((string)cfg('base_path', ''), '/');
-    $loc = fn(string $path, string $l) => abs_url($base . ($l === 'en' ? $path : lang_path($path, $l)));
+    $loc = fn(string $path, string $l) => lang_abs($path, $l);
     $day = fn(?string $d) => $d ? date('Y-m-d', strtotime($d)) : null;
 
     $GLOBALS['SITEMAP_STATE'] = [];

@@ -1,4 +1,4 @@
--- idzan.hr CMS — MySQL 5.7+ / MariaDB 10.3+
+-- domain.com CMS — MySQL 5.7+ / MariaDB 10.3+
 -- The web installer (/install.php) runs this file for you.
 
 SET NAMES utf8mb4;
