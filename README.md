@@ -135,3 +135,9 @@ Content types are defined in `inc/schema.php`. To add one (for example Skills or
 - Rich text runs through a whitelist sanitizer: scripts, inline event handlers and `javascript:` links are removed. Video embeds are limited to youtube-nocookie and Vimeo.
 - Uploads must be real images, are re-encoded (which strips EXIF/GPS data), and nothing in `uploads/` can execute.
 - Pages are sent with a strict Content-Security-Policy (`'self'` only).
+
+## Contributors
+- [@idzanhr](https://github.com/idzanhr): project owner, design, requirements and testing on the live server
+- Claude (Anthropic): AI coding assistant, wrote and reviewed code with the owner (commits marked `Co-Authored-By: Claude`)
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md).
