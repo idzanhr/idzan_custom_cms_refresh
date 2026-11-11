@@ -24,7 +24,9 @@ header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: interest-cohort=(), browsing-topics=(), camera=(), microphone=(), geolocation=()');
 if ($type === 'text/html') {
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: https:; frame-src https://www.youtube-nocookie.com https://player.vimeo.com; style-src 'self'; script-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'");
+    // Same policy as the generated pages (it carries the hash of the inline light/dark script), plus no framing.
+    header('Content-Security-Policy: ' . csp_public() . "; frame-ancestors 'none'");
+    header('X-Frame-Options: DENY');
 }
 if ($type === 'text/css') header('Cache-Control: public, max-age=300');
 echo $body;

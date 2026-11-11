@@ -6,6 +6,9 @@ declare(strict_types=1);
  * inline styles and anything not on the list below, so pasted content from Word,
  * Google Docs or old WordPress posts can't smuggle in trackers or broken markup.
  */
+/** Element ids the public pages use themselves; content headings can't take them over. */
+const CLEAN_HTML_RESERVED_IDS = ['content', 'mainnav', 'read-lbl', 'consent-box', 'consent-title', 'a11ypanel', 'langmenu', 'lightbox'];
+
 function clean_html(string $html): string
 {
     $html = trim($html);
@@ -83,8 +86,15 @@ function clean_html(string $html): string
                 $name = strtolower($attr->name);
                 $val = trim($attr->value);
                 $ok = in_array($name, $allowed[$tag], true);
+                // An inline-SVG placeholder may only stand in text, never inside an attribute: put back there,
+                // the SVG's own quotes would end the attribute and its values would become new attributes.
+                if ($ok && str_contains($val, 'SVGTOKEN')) $ok = false;
                 if ($ok && in_array($name, ['href', 'src', 'cite'], true)) $ok = safe_url($val, $tag, $name);
                 if ($ok && $name === 'class') $ok = (bool)preg_match('~^[a-z0-9 _-]{0,60}$~i', $val);
+                // Heading anchors: plain names only, prefixed so they can't stand in for the page's own elements.
+                if ($ok && $name === 'id') $ok = (bool)preg_match('~^[a-z][a-z0-9_-]{0,80}$~i', $val) && !in_array(strtolower($val), CLEAN_HTML_RESERVED_IDS, true);
+                if ($ok && $name === 'target') $ok = $val === '_blank';
+                if ($ok && in_array($name, ['width', 'height', 'colspan', 'rowspan', 'start'], true)) $ok = (bool)preg_match('~^\d{1,5}%?$~', $val);
                 if (!$ok) $child->removeAttribute($attr->name);
             }
 
@@ -128,7 +138,11 @@ function clean_html(string $html): string
 
 function safe_url(string $url, string $tag, string $attr): bool
 {
-    if ($url === '') return false;
+    // Browsers ignore tabs, line breaks and leading control characters inside an address
+    // ("jav\tascript:" runs as javascript:), so they are removed before the address is judged.
+    if (preg_match('~[\x00-\x1f\x7f]~', $url)) return false;
+    $url = trim($url);
+    if ($url === '' || str_starts_with($url, '\\')) return false;
     if ($tag === 'iframe') {
         // Privacy-friendly video embeds only (no-cookie YouTube, Vimeo with dnt).
         return (bool)preg_match('~^https://(www\.youtube-nocookie\.com/embed/|player\.vimeo\.com/video/)~i', $url);

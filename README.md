@@ -130,11 +130,16 @@ Content types are defined in `inc/schema.php`. To add one (for example Skills or
 ## Security notes
 - The admin address is secret and the public site is static files only.
 - Sessions end automatically when the account's password or 2FA changes. Admin cookies are scoped to the admin path.
-- Passwords are hashed with bcrypt, and two-factor login is mandatory. Failed passwords and codes together are limited to 8 per 15 minutes per IP.
+- Passwords are hashed with bcrypt, and two-factor login is mandatory.
+- Guessing is limited three ways: 8 failed passwords or codes per 15 minutes per visitor address; per account, 20 failed passwords and 8 failed codes per 15 minutes (so tries can't be spread over many addresses); and inside the admin, 8 wrong confirmations (current password, 2FA code) per 15 minutes.
 - Every admin form carries a CSRF token, and sessions expire after 4 hours idle.
 - Rich text runs through a whitelist sanitizer: scripts, inline event handlers and `javascript:` links are removed. Video embeds are limited to youtube-nocookie and Vimeo.
-- Uploads must be real images, are re-encoded (which strips EXIF/GPS data), and nothing in `uploads/` can execute.
+- Uploads must be real images, are re-encoded (which strips EXIF/GPS data), are refused above 80 megapixels, and nothing in `uploads/` can execute.
+- The WordPress importer only fetches from public internet addresses over http(s), refuses export files with a DOCTYPE or entities, and publishes only real font files.
 - Pages are sent with a strict Content-Security-Policy (`'self'` only).
+- Errors go to the server log, never into a page. API keys travel in request headers, never in addresses.
+- The browser installers ask for the database password from `config.php` before the first admin account can be created.
+- Found a problem? See [SECURITY.md](SECURITY.md).
 
 ## Contributors
 - [@idzanhr](https://github.com/idzanhr): project owner, design, requirements and testing on the live server

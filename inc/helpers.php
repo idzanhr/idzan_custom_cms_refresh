@@ -15,11 +15,17 @@ function db(): PDO
         'mysql:host=%s;port=%d;dbname=%s;charset=%s',
         $c['host'], (int)($c['port'] ?? 3306), $c['name'], $c['charset'] ?? 'utf8mb4'
     );
-    $pdo = new PDO($dsn, $c['user'] ?? null, $c['pass'] ?? null, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-    ]);
+    try {
+        $pdo = new PDO($dsn, $c['user'] ?? null, $c['pass'] ?? null, [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]);
+    } catch (PDOException $e) {
+        // Thrown again without the original: its stack trace carries the password as an argument,
+        // and a server that shows errors would print it.
+        throw new PDOException('Database connection failed: ' . preg_replace('~^SQLSTATE\[\w+\]\s*(\[\d+\])?\s*~', '', $e->getMessage()), (int)$e->getCode());
+    }
     if (str_starts_with($dsn, 'mysql:')) {
         $pdo->exec("SET time_zone = '" . (new DateTime())->format('P') . "'");
     }
@@ -129,7 +135,10 @@ function unique_slug(string $table, string $slug, ?int $exceptId = null): string
     $i = 2;
     // Root-level URLs are shared between blog posts and pages, so check reserved words too.
     $reserved = ['admin', 'blog', 'projects', 'project', 'affiliate', 'category', 'work-experience', 'assets', 'uploads',
-                 'feed.xml', 'sitemap.xml', 'theme.css', 'robots.txt', 'install', 'about-me', 'contact'];
+                 'feed.xml', 'sitemap.xml', 'theme.css', 'robots.txt', 'install', 'about-me', 'contact',
+                 // language folders, generated files and the admin address can't be taken by a page or post
+                 'en', 'hr', 'bs', 'sr', 'sl', '_img', '404', 'llms', 'favicon', 'index', 'wp-content', 'wp-admin',
+                 trim((string)cfg('admin_path', ''), '/')];
     while (true) {
         $taken = one("SELECT id FROM {$table} WHERE slug = ?" . ($exceptId ? ' AND id <> ?' : ''),
             $exceptId ? [$slug, $exceptId] : [$slug]);

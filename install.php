@@ -51,7 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step !== 'done') {
     } elseif ($step === 'install') {
         $user = trim((string)($_POST['username'] ?? ''));
         $pass = (string)($_POST['password'] ?? '');
-        if (!preg_match('~^[A-Za-z0-9._@-]{3,64}$~', $user)) $error = 'Username: 3–64 letters, numbers, . _ @ -';
+        // Whoever opens this page first could otherwise create the admin account. The database password
+        // from config.php proves the visitor controls the server.
+        $dbPass = (string)(cfg('db')['pass'] ?? '');
+        if ($dbPass === '') $error = 'config.php has no database password, so this page can\'t check who you are. Install from the command line instead: php tools/install.php';
+        elseif (!hash_equals($dbPass, (string)($_POST['dbpass'] ?? ''))) { usleep(800000); $error = 'That isn\'t the database password from config.php.'; }
+        elseif (!preg_match('~^[A-Za-z0-9._@-]{3,64}$~', $user)) $error = 'Username: 3–64 letters, numbers, . _ @ -';
         elseif (mb_strlen($pass) < 12) $error = 'Password needs at least 12 characters.';
         elseif ($pass !== ($_POST['password2'] ?? '')) $error = 'Passwords don\'t match.';
         else {
@@ -135,6 +140,8 @@ $checks = [
     <form method="post">
       <?= csrf_field() ?>
       <p class="help">2/2 — Create your admin login.</p>
+      <label for="dbp">Database password (from config.php)</label><input id="dbp" name="dbpass" type="password" required autocomplete="off">
+      <p class="help">Proves you control this server. This page stops working once the admin account exists.</p>
       <label for="un">Username</label><input id="un" name="username" value="<?= e($_POST['username'] ?? '') ?>" required autocomplete="username">
       <label for="pw">Password (12+ characters)</label><input id="pw" name="password" type="password" minlength="12" required autocomplete="new-password">
       <label for="pw2">Repeat password</label><input id="pw2" name="password2" type="password" required autocomplete="new-password">

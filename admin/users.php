@@ -9,9 +9,11 @@ $error = '';
 /** Every sensitive change here needs the administrator's own current 2FA code. */
 function confirm_admin_code(array $me): bool
 {
+    if (auth_blocked('confirm', (int)$me['id'])) return false;
     $step = totp_verify((string)$me['totp_secret'], (string)($_POST['code'] ?? ''), (int)$me['totp_last_step']);
-    if ($step === null) return false;
+    if ($step === null) { auth_fail('confirm', (int)$me['id']); return false; }
     q('UPDATE users SET totp_last_step = ? WHERE id = ?', [$step, $me['id']]);
+    auth_clear('confirm', (int)$me['id']);
     return true;
 }
 
@@ -23,7 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $admins = (int)one("SELECT COUNT(*) c FROM users WHERE role = 'admin'")['c'];
 
     if (!confirm_admin_code($me)) {
-        $error = 'Enter your current 6-digit authenticator code to confirm.';
+        $error = auth_blocked('confirm', (int)$me['id'])
+            ? 'Too many wrong codes. Wait 15 minutes and try again.'
+            : 'Enter your current 6-digit authenticator code to confirm.';
     } elseif ($action === 'add') {
         $u = trim((string)($_POST['username'] ?? ''));
         $pw = (string)($_POST['password'] ?? '');

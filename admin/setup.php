@@ -11,13 +11,24 @@ if (cms_installed()) redirect(admin_url('login.php'));
 
 $error = '';
 $cfgDb = cfg('db');
+
+/** Wrong database passwords typed on this page in the last 15 minutes (kept in storage/, the tables don't exist yet). */
+function setup_tries(?bool $add = null): int
+{
+    $f = ROOT . '/storage/setup-tries.json';
+    $t = is_file($f) ? array_filter((array)json_decode((string)@file_get_contents($f), true), fn($x) => is_int($x) && $x > time() - 900) : [];
+    if ($add) { $t[] = time(); if (!is_dir(dirname($f))) @mkdir(dirname($f), 0775, true); @file_put_contents($f, json_encode(array_values($t)), LOCK_EX); }
+    return count($t);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $proof = (string)($_POST['dbpass'] ?? '');
     $user = trim((string)($_POST['username'] ?? ''));
     $pass = (string)($_POST['password'] ?? '');
     if (!is_file(ROOT . '/config.php')) $error = 'config.php is missing — create it first (step 4).';
-    elseif ($proof === '' || !hash_equals((string)($cfgDb['pass'] ?? ''), $proof)) { usleep(800000); $error = 'That isn\'t the database password from config.php.'; }
+    elseif (setup_tries() >= 10) $error = 'Too many wrong tries. Wait 15 minutes and try again.';
+    elseif ($proof === '' || !hash_equals((string)($cfgDb['pass'] ?? ''), $proof)) { setup_tries(true); usleep(800000); $error = 'That isn\'t the database password from config.php.'; }
     elseif (!preg_match('~^[A-Za-z0-9._@-]{3,64}$~', $user)) $error = 'Username: 3–64 letters, numbers, . _ @ -';
     elseif (mb_strlen($pass) < 12) $error = 'Password needs at least 12 characters.';
     elseif ($pass !== ($_POST['password2'] ?? '')) $error = 'Passwords don\'t match.';
@@ -32,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($_POST['seed'])) { require ROOT . '/install/seed.php'; seed_content(); }
             foreach ([public_dir() . '/uploads', ROOT . '/storage'] as $d) if (!is_dir($d)) @mkdir($d, 0775, true);
             content_changed();
+            @unlink(ROOT . '/storage/setup-tries.json');
             flash('Installed. Log in, then set up two-factor login with your authenticator app.');
             redirect(admin_url('login.php'));
         } catch (Throwable $e) {

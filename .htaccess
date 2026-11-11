@@ -8,8 +8,9 @@ DirectoryIndex index.php
   RewriteBase /
 
   # Block private files and folders.
-  RewriteRule ^(config\.php|config\.sample\.php|README\.md)$ - [F,L]
-  RewriteRule ^(inc|install|storage|tools|import)(/|$) - [F,L]
+  RewriteRule ^(config\.php|config\.sample\.php)$ - [F,L]
+  RewriteRule \.(md|sql|sqlite|log|bak|zip)$ - [F,L]
+  RewriteRule ^(inc|install|storage|tools|import|dev|docs|deploy)(/|$) - [F,L]
   RewriteRule ^\.  - [F,L]
 
   # Everything that isn't a real file or folder goes to the front controller.

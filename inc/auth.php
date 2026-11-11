@@ -152,5 +152,44 @@ const ADMIN_ONLY_PAGES = ['users.php', 'settings.php', 'import.php', 'export.php
 function is_admin(?array $user = null): bool
 {
     $user ??= $GLOBALS['ME'] ?? null;
-    return ($user['role'] ?? 'admin') === 'admin';
+    return is_array($user) && ($user['role'] ?? '') === 'admin';
+}
+
+/* ---------------- limits on guessing ---------------- */
+
+const AUTH_WINDOW = 15 * 60;
+
+/**
+ * Failed attempts are counted per visitor address (login.php) and, with these helpers, per account,
+ * so a password or a 6-digit code can't be guessed by spreading the tries over many addresses,
+ * or from inside a signed-in session that someone else got hold of.
+ * $what: 'pw' (password at login), 'code' (2FA code at login), 'confirm' (code/password asked again inside the admin).
+ */
+function auth_key(string $what, int $userId): string
+{
+    return hash('sha256', $what . ':' . $userId . '|' . (cfg('db')['name'] ?? ''));
+}
+
+function auth_blocked(string $what, int $userId, int $max = 8): bool
+{
+    return (int)one('SELECT COUNT(*) c FROM login_attempts WHERE ip_hash = ? AND attempted_at > ?',
+        [auth_key($what, $userId), date('Y-m-d H:i:s', time() - AUTH_WINDOW)])['c'] >= $max;
+}
+
+function auth_fail(string $what, int $userId): void
+{
+    q('INSERT INTO login_attempts (ip_hash, attempted_at) VALUES (?, ?)', [auth_key($what, $userId), now()]);
+}
+
+function auth_clear(string $what, int $userId): void
+{
+    q('DELETE FROM login_attempts WHERE ip_hash = ?', [auth_key($what, $userId)]);
+}
+
+/** A bcrypt check that always fails: keeps "no such user" as slow as "wrong password". */
+function password_dummy_verify(string $password): void
+{
+    static $hash = null;
+    $hash ??= password_hash(bin2hex(random_bytes(8)), PASSWORD_DEFAULT);
+    password_verify($password, $hash);
 }

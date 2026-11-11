@@ -58,6 +58,11 @@ return [
 
     // Max upload size per image, in megabytes (keep nginx client_max_body_size above this).
     'upload_max_mb' => 10,
+    // Largest picture accepted, in megapixels (width × height). Stops tiny files that unpack into huge images.
+    'upload_max_megapixels' => 80,
+    // The WordPress importer only fetches from public internet addresses. Set to true only if your old site
+    // sits on a private network address (10.x, 192.168.x, 127.0.0.1).
+    'import_allow_private' => false,
 
     // Longest edge for uploaded images; larger images are scaled down (needs PHP GD). 0 = keep original.
     'image_max_px' => 2400,

@@ -282,6 +282,7 @@ function tr_http(string $url, array $headers, string $body): array
     curl_setopt_array($ch, [
         CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => $headers, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 180,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_FOLLOWLOCATION => false,   // the keys only ever go to the service itself, over HTTPS
         CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$respHeaders) {
             if (str_contains($line, ':')) { [$k, $v] = explode(':', $line, 2); $respHeaders[strtolower(trim($k))] = trim($v); }
             return strlen($line);
@@ -312,8 +313,9 @@ function tr_google(string $lang, array $texts): array
         if (!$group) continue;
         $body = 'source=en&target=' . rawurlencode($lang) . '&format=' . $format;
         foreach ($group as $t) $body .= '&q=' . rawurlencode($t);
-        $json = tr_http('https://translation.googleapis.com/language/translate/v2?key=' . rawurlencode(tr_cfg('google_api_key')),
-            ['Content-Type: application/x-www-form-urlencoded; charset=utf-8'], $body);
+        // The key travels in a header: addresses end up in logs and error messages, headers don't.
+        $json = tr_http('https://translation.googleapis.com/language/translate/v2',
+            ['Content-Type: application/x-www-form-urlencoded; charset=utf-8', 'X-Goog-Api-Key: ' . tr_cfg('google_api_key')], $body);
         $tr = $json['data']['translations'] ?? [];
         $i = 0;
         foreach ($group as $k => $t) {
