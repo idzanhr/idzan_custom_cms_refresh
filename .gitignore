@@ -13,3 +13,6 @@ import/*
 *.sqlite
 *.log
 .DS_Store
+
+# Local development
+storage/*.sqlite

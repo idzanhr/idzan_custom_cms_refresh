@@ -9,11 +9,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $cur = (string)($_POST['current'] ?? '');
     $new = (string)($_POST['new'] ?? '');
     $username = trim((string)($_POST['username'] ?? $user['username']));
-    if (!password_verify($cur, $user['password_hash'])) $error = 'Current password is wrong.';
+    if (auth_blocked('confirm', (int)$user['id'])) $error = 'Too many wrong tries. Wait 15 minutes and try again.';
+    elseif (!password_verify($cur, $user['password_hash'])) { auth_fail('confirm', (int)$user['id']); $error = 'Current password is wrong.'; }
     elseif ($new !== '' && mb_strlen($new) < 12) $error = 'New password needs at least 12 characters.';
     elseif ($new !== '' && $new !== ($_POST['new2'] ?? '')) $error = 'New passwords don\'t match.';
     elseif (!preg_match('~^[A-Za-z0-9._@-]{3,64}$~', $username)) $error = 'Username: 3–64 letters, numbers, . _ @ -';
+    elseif (one('SELECT id FROM users WHERE username = ? AND id <> ?', [$username, $user['id']])) $error = 'That username is taken.';
     else {
+        auth_clear('confirm', (int)$user['id']);
         q('UPDATE users SET username = ? WHERE id = ?', [$username, $user['id']]);
         if ($new !== '') {
             q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($new, PASSWORD_DEFAULT), $user['id']]);

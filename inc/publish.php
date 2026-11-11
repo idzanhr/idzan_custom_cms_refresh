@@ -83,6 +83,7 @@ function rebuild_static(): int
         foreach (array_merge(['en'], enabled_langs()) as $l) {
             $GLOBALS['LANG'] = $l;
             foreach ($paths as $path) {
+                if (str_contains($path, '..') || str_contains($path, "\0") || str_contains($path, '\\')) continue;   // never write outside the public folder
                 if ($l !== 'en' && !is_page_path($path)) continue;
                 $GLOBALS['BASE_PATH'] = $path;
                 [$status, $body] = route($path);

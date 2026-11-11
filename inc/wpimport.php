@@ -29,6 +29,91 @@ const WP_SKIP_PAGES = ['home', 'homepage', 'about-me', 'blog', 'projects'];
 const WP_TRANSLATION_SLUGS = ['o-meni', 'pocetna-stranica', 'domaca-stran', 'o-mne', 'naslovna', 'kontakt', 'projekti', 'blog-2', 'blog-3', 'blog-4', 'blog-5'];
 
 /** True for translated copies (Cyrillic text in slug/title, or a known translated slug). */
+/* ---------------- fetching from the old site, safely ---------------- */
+
+/**
+ * True when $host may be fetched: every address it resolves to is a public one. Addresses inside the
+ * server or its network (127.0.0.1, 10.x, 192.168.x, 169.254.x cloud metadata, ::1, fc00::/7…) are refused,
+ * so an export file can't make the server read its own internal services ("SSRF").
+ * config.php 'import_allow_private' => true switches the check off (old site on a private network).
+ * Returns the address to connect to, or null.
+ */
+function wp_public_ip(string $host): ?string
+{
+    $host = trim($host, '[]');
+    if ($host === '') return null;
+    $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (gethostbynamel($host) ?: []);
+    if (!filter_var($host, FILTER_VALIDATE_IP) && function_exists('dns_get_record')) {
+        foreach ((@dns_get_record($host, DNS_AAAA) ?: []) as $r) if (!empty($r['ipv6'])) $ips[] = $r['ipv6'];
+    }
+    if (!$ips) return null;
+    if (cfg('import_allow_private')) return $ips[0];
+    foreach ($ips as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return null;
+        if (preg_match('~^(0\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::ffff:)~i', $ip)) return null;   // "this network", carrier NAT, IPv4 written as IPv6
+    }
+    return $ips[0];
+}
+
+/**
+ * GET over http(s) only, to public addresses only, following at most 5 redirects (each one checked again),
+ * at most $maxBytes. Returns [status, body, [lower-case header => value]]; status 0 when nothing was fetched.
+ */
+function wp_safe_get(string $url, array $headers = [], int $timeout = 40, int $maxBytes = 83886080): array
+{
+    for ($hop = 0; $hop < 6; $hop++) {
+        $p = parse_url($url);
+        $scheme = strtolower((string)($p['scheme'] ?? ''));
+        if (!in_array($scheme, ['http', 'https'], true) || empty($p['host']) || isset($p['user']) || isset($p['pass'])) return [0, '', []];
+        $ip = wp_public_ip((string)$p['host']);
+        if ($ip === null) return [0, '', []];
+        $port = (int)($p['port'] ?? ($scheme === 'https' ? 443 : 80));
+        $resp = []; $body = ''; $tooBig = false;
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => false, CURLOPT_FOLLOWLOCATION => false, CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => $timeout,
+                // Connect to the address that was just checked (the name can't be switched to another one in between).
+                CURLOPT_RESOLVE => [trim((string)$p['host'], '[]') . ':' . $port . ':' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip)],
+                CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$resp) {
+                    if (str_contains($line, ':')) { [$k, $v] = explode(':', $line, 2); $resp[strtolower(trim($k))] = trim($v); }
+                    return strlen($line);
+                },
+                CURLOPT_WRITEFUNCTION => function ($c, $chunk) use (&$body, &$tooBig, $maxBytes) {
+                    if (strlen($body) + strlen($chunk) > $maxBytes) { $tooBig = true; return 0; }
+                    $body .= $chunk;
+                    return strlen($chunk);
+                },
+            ]);
+            curl_exec($ch);
+            $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            if ($tooBig) return [0, '', []];
+        } else {
+            $ctx = stream_context_create(['http' => ['timeout' => $timeout, 'follow_location' => 0, 'ignore_errors' => true, 'header' => implode("\r\n", $headers) . "\r\n"]]);
+            $raw = @file_get_contents($url, false, $ctx, 0, $maxBytes);
+            $hdrs = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : ($http_response_header ?? []);
+            $status = 0;
+            foreach ($hdrs as $h) {
+                if (preg_match('~^HTTP/\S+\s+(\d{3})~', $h, $m)) $status = (int)$m[1];
+                elseif (str_contains($h, ':')) { [$k, $v] = explode(':', $h, 2); $resp[strtolower(trim($k))] = trim($v); }
+            }
+            $body = $raw === false ? '' : $raw;
+        }
+        if ($status >= 300 && $status < 400 && !empty($resp['location'])) {
+            $loc = $resp['location'];
+            if (!preg_match('~^https?://~i', $loc)) {
+                $origin = $scheme . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '');
+                $loc = str_starts_with($loc, '/') ? $origin . $loc : $origin . rtrim(dirname((string)($p['path'] ?? '/')), '/') . '/' . $loc;
+            }
+            $url = $loc;
+            continue;
+        }
+        return [$status, $body, $resp];
+    }
+    return [0, '', []];
+}
+
 function wp_is_translation(array $it): bool
 {
     $slug = rawurldecode((string)$it['slug']);
@@ -86,7 +171,10 @@ final class WpImporter
         $path = (string)parse_url($url, PHP_URL_PATH);
         $pos = strpos($path, '/wp-content/uploads/');
         if ($pos === false) return null;
-        return rawurldecode(substr($path, $pos + 20));
+        $rel = rawurldecode(substr($path, $pos + 20));
+        // Never leave the uploads folder: no "..", no absolute paths, no odd characters.
+        if ($rel === '' || str_contains($rel, '..') || str_contains($rel, "\0") || str_contains($rel, '\\') || $rel[0] === '/') return null;
+        return $rel;
     }
 
     /** Original upload for a resized variant: photo-1024x683.jpg → photo.jpg */
@@ -134,9 +222,8 @@ final class WpImporter
 
     private function fetch(string $url): ?string
     {
-        $ctx = stream_context_create(['http' => ['timeout' => 40, 'header' => "User-Agent: php-cms-importer/1.1\r\n"]]);
-        $bin = @file_get_contents($url, false, $ctx);
-        return ($bin === false || strlen($bin) < 100) ? null : $bin;
+        [$status, $bin] = wp_safe_get($url, ['User-Agent: php-cms-importer/1.2']);
+        return ($status !== 200 || strlen($bin) < 100) ? null : $bin;
     }
 
     private function storeBytes(string $bin, string $name, string $hint): ?string
@@ -498,6 +585,17 @@ final class WpImporter
     /** @return array{0: array[], 1: string} [normalized items, site url] */
     public static function readWxr(string $file): array
     {
+        // A WordPress export never has a DOCTYPE or entity definitions; a file that does is trying to make the
+        // parser read other files or blow up its memory, so it is refused before parsing.
+        $fh = @fopen($file, 'rb');
+        if (!$fh) throw new RuntimeException('The export file could not be opened.');
+        $tail = '';
+        while (!feof($fh)) {
+            $chunk = $tail . (string)fread($fh, 1048576);
+            if (stripos($chunk, '<!DOCTYPE') !== false || stripos($chunk, '<!ENTITY') !== false) { fclose($fh); throw new RuntimeException('This file contains a DOCTYPE or entity definitions, which a WordPress export never has. It was not imported.'); }
+            $tail = substr($chunk, -16);
+        }
+        fclose($fh);
         $prev = libxml_use_internal_errors(true);
         $xml = simplexml_load_file($file, 'SimpleXMLElement', LIBXML_NOCDATA | LIBXML_PARSEHUGE | LIBXML_NONET);
         libxml_use_internal_errors($prev);
@@ -565,16 +663,9 @@ final class WpImporter
         $out = [];
         for ($page = 1; $page < 100; $page++) {
             $url = "{$site}/wp-json/wp/v2/{$base}?per_page=50&page={$page}&_embed=1";
-            $ctx = stream_context_create(['http' => ['timeout' => 30, 'ignore_errors' => true, 'header' => "Accept: application/json\r\nUser-Agent: php-cms-importer/1.1\r\n"]]);
-            $body = @file_get_contents($url, false, $ctx);
-            if ($body === false) throw new RuntimeException('Could not reach ' . $url);
-            $status = 0; $pages = 1;
-            // PHP 8.4+ has http_get_last_response_headers(); the magic variable is deprecated in 8.5.
-            $hdrs = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : ($http_response_header ?? []);
-            foreach ($hdrs as $h) {
-                if (preg_match('~^HTTP/\S+\s+(\d{3})~', $h, $m)) $status = (int)$m[1];
-                if (stripos($h, 'X-WP-TotalPages:') === 0) $pages = (int)trim(substr($h, 16));
-            }
+            [$status, $body, $hdrs] = wp_safe_get($url, ['Accept: application/json', 'User-Agent: php-cms-importer/1.2'], 30);
+            if ($status === 0) throw new RuntimeException('Could not reach ' . $url . ' (only public http/https addresses can be imported from).');
+            $pages = (int)($hdrs['x-wp-totalpages'] ?? 1) ?: 1;
             if ($status === 400 && str_contains($body, 'rest_post_invalid_page_number')) break;
             if ($status >= 400) throw new RuntimeException("HTTP {$status} from {$url}");
             $batch = json_decode($body, true);
@@ -636,6 +727,7 @@ final class WpImporter
                 if (!preg_match('~^[\w.-]+\.(woff2?|ttf|otf|eot|svg)$~i', $name)) return $m[0];
                 if (!is_file($dir . '/' . $name)) {
                     $bin = $this->rawFile($url);
+                    if ($bin !== null && !self::isFontFile($bin, $name)) $bin = null;   // only real font files are published
                     $this->stats['fonts'][$bin !== null ? 'files copied' : 'files not found'] = ($this->stats['fonts'][$bin !== null ? 'files copied' : 'files not found'] ?? 0) + 1;
                     if ($bin !== null) file_put_contents($dir . '/' . $name, $bin);
                 }
@@ -644,6 +736,20 @@ final class WpImporter
         }
         save_setting('fonts_css', trim($css));
         $this->log[] = 'Brand fonts: ' . implode(', ', array_column($fonts, 'family')) . '.';
+    }
+
+    /** The first bytes say what a file really is: WOFF, WOFF2, TrueType/OpenType, EOT, or (for .svg fonts) a clean SVG. */
+    private static function isFontFile(string $bin, string $name): bool
+    {
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        $head = substr($bin, 0, 4);
+        return match ($ext) {
+            'woff'  => $head === 'wOFF',
+            'woff2' => $head === 'wOF2',
+            'ttf', 'otf' => in_array($head, ["\x00\x01\x00\x00", 'OTTO', 'true', 'ttcf'], true),
+            'eot'   => strlen($bin) > 36 && substr($bin, 34, 2) === "\x4c\x50",
+            default => false,   // SVG fonts are obsolete and could carry scripts: not copied
+        };
     }
 
     /** Original bytes of an upload (no image processing) from local copies, the zip, or the old site. */

@@ -17,7 +17,7 @@ function favicon_build(): void
 {
     $out = public_dir();
     $src = s('favicon');
-    $file = $src !== '' && !preg_match('~^https?://~i', $src) ? public_dir() . '/' . ltrim($src, '/') : '';
+    $file = $src !== '' && !preg_match('~^https?://~i', $src) && !str_contains($src, '..') ? public_dir() . '/' . ltrim($src, '/') : '';
     if ($file === '' || !is_file($file) || !extension_loaded('gd')) {
         if (setting('favicon_stamp', '') !== '') {
             foreach (FAVICON_FILES as $f) @unlink($out . '/' . $f);

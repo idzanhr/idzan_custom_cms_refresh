@@ -28,7 +28,11 @@ function store_upload(array $file, string $nameHint = ''): string
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
     if (!isset(IMAGE_TYPES[$mime])) throw new RuntimeException('Only JPG, PNG, WebP, GIF or AVIF images are allowed.');
     $ext = IMAGE_TYPES[$mime];
-    if ($mime !== 'image/avif' && @getimagesize($file['tmp_name']) === false) throw new RuntimeException('That file is not a valid image.');
+    $dims = $mime !== 'image/avif' ? @getimagesize($file['tmp_name']) : null;
+    if ($mime !== 'image/avif' && $dims === false) throw new RuntimeException('That file is not a valid image.');
+    // A small file can claim an enormous canvas (a "decompression bomb") and exhaust the server's memory when opened.
+    $maxMp = (int)cfg('upload_max_megapixels', 80);
+    if ($dims && $dims[0] * $dims[1] > $maxMp * 1000000) throw new RuntimeException('That image is ' . $dims[0] . '×' . $dims[1] . ' pixels; the limit is ' . $maxMp . ' megapixels.');
 
     $dir = 'uploads/' . date('Y/m');
     $abs = public_dir() . '/' . $dir;

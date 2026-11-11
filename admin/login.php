@@ -50,19 +50,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (too_many_tries()) {
         $error = 'Too many attempts. Wait 15 minutes and try again.';
     } elseif ($pending) {
-        // Step 2: authenticator code.
-        $code = trim((string)($_POST['code'] ?? ''));
-        $step = totp_verify((string)$pending['totp_secret'], $code, (int)$pending['totp_last_step']);
-        if ($step !== null) {
-            q('UPDATE users SET totp_last_step = ? WHERE id = ?', [$step, $pending['id']]);
-            finish_login($pending, true, !empty($_POST['remember']));
+        // Step 2: authenticator code. Counted per account too: the password is already known at this point.
+        if (auth_blocked('code', (int)$pending['id'])) {
+            $error = 'Too many wrong codes for this account. Wait 15 minutes and try again.';
+        } else {
+            $code = trim((string)($_POST['code'] ?? ''));
+            $step = totp_verify((string)$pending['totp_secret'], $code, (int)$pending['totp_last_step']);
+            if ($step !== null) {
+                q('UPDATE users SET totp_last_step = ? WHERE id = ?', [$step, $pending['id']]);
+                auth_clear('code', (int)$pending['id']);
+                finish_login($pending, true, !empty($_POST['remember']));
+            }
+            auth_fail('code', (int)$pending['id']);
+            failed_try();
+            $error = 'Wrong or expired code. Check that your phone\'s clock is set automatically, then try the newest code.';
         }
-        failed_try();
-        $error = 'Wrong or expired code. Check that your phone\'s clock is set automatically, then try the newest code.';
     } else {
         // Step 1: username + password.
         $user = one('SELECT * FROM users WHERE username = ?', [trim((string)($_POST['username'] ?? ''))]);
-        if ($user && password_verify((string)($_POST['password'] ?? ''), $user['password_hash'])) {
+        $password = (string)($_POST['password'] ?? '');
+        $locked = $user && auth_blocked('pw', (int)$user['id'], 20);   // same answer as a wrong password: no hint that the name exists
+        if (!$user || $locked) password_dummy_verify($password);
+        if ($user && !$locked && password_verify($password, $user['password_hash'])) {
+            auth_clear('pw', (int)$user['id']);
             if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
                 q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash((string)$_POST['password'], PASSWORD_DEFAULT), $user['id']]);
             }
@@ -74,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             finish_login($user, false); // no 2FA yet → straight to the setup page
         }
+        if ($user && !$locked) auth_fail('pw', (int)$user['id']);
         failed_try();
         $error = 'Wrong username or password.';
     }

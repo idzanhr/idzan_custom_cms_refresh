@@ -28,12 +28,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(admin_url('index.php'));
         }
     } elseif ($enabled && $action === 'reset') {
-        $step = totp_verify((string)$me['totp_secret'], (string)($_POST['code'] ?? ''), (int)$me['totp_last_step']);
-        if ($step === null) {
+        $step = auth_blocked('confirm', (int)$me['id']) ? null
+            : totp_verify((string)$me['totp_secret'], (string)($_POST['code'] ?? ''), (int)$me['totp_last_step']);
+        if (auth_blocked('confirm', (int)$me['id'])) {
+            $error = 'Too many wrong tries. Wait 15 minutes and try again.';
+        } elseif ($step === null) {
+            auth_fail('confirm', (int)$me['id']);
             $error = 'Wrong or expired authenticator code.';
         } elseif (!password_verify((string)($_POST['password'] ?? ''), $me['password_hash'])) {
+            auth_fail('confirm', (int)$me['id']);
             $error = 'Wrong password.';
         } else {
+            q('UPDATE users SET totp_last_step = ? WHERE id = ?', [$step, $me['id']]);   // the code can't be used a second time
+            auth_clear('confirm', (int)$me['id']);
             // Move to a new phone / app: switch off, then set up again right away.
             q('UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_last_step = 0 WHERE id = ?', [$me['id']]);
             forget_all_devices((int)$me['id']);
