@@ -252,7 +252,8 @@
     ];
     var n = 0;
     signals.forEach(function (re) { if (re.test(t)) n++; });
-    return n >= 2;
+    // A line starting with "## " is clear enough on its own.
+    return n >= 2 || /^\s{0,3}#{1,6}\s+\S/m.test(t);
   }
 
   document.querySelectorAll('textarea.rte').forEach(function (ta) {
