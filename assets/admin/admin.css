@@ -145,6 +145,10 @@ input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
 .rte-bar button:hover { background: var(--hover); border-color: var(--line); color: var(--accent); }
 .rte-bar button:disabled { opacity: .35; cursor: default; }
 .rte-bar .sep { width: 1px; background: var(--line); margin: 3px 4px; }
+.rte-md { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.rte-md .help { margin: 0 0 8px; }
+.rte-md textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; border: 1px solid var(--line); border-radius: 4px; }
+.rte-md .inline { margin-top: 8px; gap: 8px; }
 .rte-area { min-height: 320px; padding: 14px 18px; outline: none; color: var(--ink); }
 .rte-area a { color: var(--accent); }
 .rte-area.busy { opacity: .5; cursor: progress; }

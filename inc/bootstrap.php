@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('ROOT', dirname(__DIR__));
 /** Shown at the bottom of every admin page, so you can see which code the server runs. */
-const CMS_VERSION = '2026.11.11-31 (security review)';
+const CMS_VERSION = '2026.11.22-32 (Markdown paste and button)';
 
 // Errors go to the server's log, never into a page (they can show paths, queries or settings).
 if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'cli-server') {
