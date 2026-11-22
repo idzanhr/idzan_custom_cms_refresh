@@ -125,6 +125,136 @@
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
+  /* ---- Markdown to HTML (runs in the browser; the result is still cleaned by clean_html() on save) ---- */
+  var LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  var FENCE_RE = /^\s*(```|~~~)(.*)$/;
+  var HEAD_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+  var RULE_RE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
+  var QUOTE_RE = /^\s*>/;
+
+  function safeHref(u) {
+    return /^(https?:\/\/|mailto:|\/|#)/i.test(u) && !/[\s"'<>]/.test(u) ? u : null;
+  }
+
+  // Inline Markdown: code, images, links, bare URLs, bold, italic. Plain text is escaped.
+  function inlineMd(s) {
+    var re = /`([^`]+)`|!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\"]*\")?\)|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\"]*\")?\)|(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]])|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s](?:[^*]*[^*\s])?)\*|(?<!\w)_([^_\s][^_]*)_(?!\w)/g;
+    var out = '', last = 0, m;
+    while ((m = re.exec(s))) {
+      out += esc(s.slice(last, m.index));
+      last = re.lastIndex;
+      if (m[1] !== undefined) out += '<code>' + esc(m[1]) + '</code>';
+      else if (m[3] !== undefined) {
+        var src = safeHref(m[3]);
+        out += src ? '<img src="' + esc(src) + '" alt="' + esc(m[2]) + '">' : esc(m[2]);
+      }
+      else if (m[5] !== undefined) {
+        var href = safeHref(m[5]);
+        out += href ? '<a href="' + esc(href) + '">' + inlineMd(m[4]) + '</a>' : inlineMd(m[4]);
+      }
+      else if (m[6] !== undefined) out += '<a href="' + esc(m[6]) + '">' + esc(m[6]) + '</a>';
+      else if (m[7] !== undefined || m[8] !== undefined) out += '<strong>' + inlineMd(m[7] || m[8]) + '</strong>';
+      else out += '<em>' + inlineMd(m[9] || m[10]) + '</em>';
+    }
+    return out + esc(s.slice(last));
+  }
+
+  function startsBlock(l) {
+    return HEAD_RE.test(l) || FENCE_RE.test(l) || RULE_RE.test(l) || QUOTE_RE.test(l) || LIST_RE.test(l);
+  }
+
+  // A list starting at line i with the given indent. Nested lists are indented under the item above.
+  function parseList(lines, i, indent) {
+    var tag = null, items = [], m;
+    while (i < lines.length) {
+      m = lines[i].match(LIST_RE);
+      if (!m) {
+        if (/^\s*$/.test(lines[i])) {
+          var j = i + 1;
+          while (j < lines.length && /^\s*$/.test(lines[j])) j++;
+          var nxt = j < lines.length ? lines[j].match(LIST_RE) : null;
+          if (nxt && nxt[1].length >= indent) { i = j; continue; }
+          break;
+        }
+        if (items.length && /^\s{2,}\S/.test(lines[i])) { items[items.length - 1].text += ' ' + lines[i].trim(); i++; continue; }
+        break;
+      }
+      var ind = m[1].length;
+      if (ind < indent) break;
+      if (ind > indent) {
+        var sub = parseList(lines, i, ind);
+        if (items.length) items[items.length - 1].sub += sub.html;
+        else items.push({ text: '', sub: sub.html });
+        if (sub.next === i) i++; else i = sub.next;
+        continue;
+      }
+      var kind = /\d/.test(m[2]) ? 'ol' : 'ul';
+      if (tag === null) tag = kind;
+      else if (kind !== tag) break;
+      items.push({ text: m[3], sub: '' });
+      i++;
+    }
+    var html = '<' + tag + '>' + items.map(function (it) { return '<li>' + inlineMd(it.text) + it.sub + '</li>'; }).join('') + '</' + tag + '>';
+    return { html: html, next: i };
+  }
+
+  function mdToHtml(src) {
+    var lines = src.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+    var out = [], i = 0;
+    while (i < lines.length) {
+      var l = lines[i], m;
+      if (/^\s*$/.test(l)) { i++; continue; }
+      if ((m = l.match(FENCE_RE))) {
+        var fence = m[1], code = [];
+        i++;
+        while (i < lines.length && !new RegExp('^\\s*' + fence + '\\s*$').test(lines[i])) { code.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if ((m = l.match(HEAD_RE))) {
+        var tag = m[1].length <= 2 ? 'h2' : 'h3';
+        out.push('<' + tag + '>' + inlineMd(m[2]) + '</' + tag + '>');
+        i++;
+        continue;
+      }
+      if (RULE_RE.test(l)) { out.push('<hr>'); i++; continue; }
+      if (QUOTE_RE.test(l)) {
+        var q = [];
+        while (i < lines.length && QUOTE_RE.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+        out.push('<blockquote>' + mdToHtml(q.join('\n')) + '</blockquote>');
+        continue;
+      }
+      if (LIST_RE.test(l)) {
+        var list = parseList(lines, i, l.match(LIST_RE)[1].length);
+        out.push(list.html);
+        i = list.next;
+        continue;
+      }
+      // Paragraph: the first line always belongs to it; following lines join until a blank line or another block.
+      var para = '';
+      do {
+        var raw = lines[i];
+        var hard = / {2,}$|\\$/.test(raw);
+        para += inlineMd(raw.replace(/\\$/, '').trim()) + (hard ? '<br>' : ' ');
+        i++;
+      } while (i < lines.length && !/^\s*$/.test(lines[i]) && !startsBlock(lines[i]));
+      out.push('<p>' + para.replace(/(<br>| )$/, '') + '</p>');
+    }
+    return out.join('');
+  }
+
+  // Text that looks like Markdown (two or more clear signals), so plain prose is left alone.
+  function looksLikeMd(t) {
+    var signals = [
+      /^\s{0,3}#{1,6}\s+\S/m, /^\s*[-*+]\s+\S/m, /^\s*\d+[.)]\s+\S/m, /^\s*>\s?\S/m,
+      /^\s*(```|~~~)/m, /\*\*[^*\n]+\*\*/, /\[[^\]\n]+\]\(\S+\)/, /`[^`\n]+`/
+    ];
+    var n = 0;
+    signals.forEach(function (re) { if (re.test(t)) n++; });
+    return n >= 2;
+  }
+
   document.querySelectorAll('textarea.rte').forEach(function (ta) {
     var wrap = document.createElement('div');
     wrap.className = 'rte-wrap';
@@ -178,6 +308,12 @@
       ['⟲', 'Undo', function () { cmd('undo'); }],
       ['⟳', 'Redo', function () { cmd('redo'); }],
       ['Clear', 'Clear formatting', function () { cmd('removeFormat'); }],
+      ['|'],
+      ['Markdown', 'Paste Markdown and insert it as formatted text', function () {
+        remember();
+        mdPanel.hidden = !mdPanel.hidden;
+        if (!mdPanel.hidden) mdText.focus();
+      }],
       ['&lt;/&gt;', 'Edit HTML', function () { toggleSource(); }],
     ];
 
@@ -256,6 +392,39 @@
         .finally(function () { ed.classList.remove('busy'); picker.value = ''; });
     });
 
+    var mdPanel = document.createElement('div');
+    mdPanel.className = 'rte-md';
+    mdPanel.hidden = true;
+    var mdHelp = document.createElement('p');
+    mdHelp.className = 'help';
+    mdHelp.textContent = 'Paste or type Markdown below. Headings, lists, links, bold and italic are turned into formatting when you insert it.';
+    var mdText = document.createElement('textarea');
+    mdText.rows = 10;
+    mdText.setAttribute('aria-label', 'Markdown text');
+    mdText.placeholder = '## Heading\n\n- First item\n- Second item\n\n[A link](https://example.com)';
+    var mdBtns = document.createElement('div');
+    mdBtns.className = 'inline';
+    var mdInsert = document.createElement('button');
+    mdInsert.type = 'button';
+    mdInsert.className = 'btn primary';
+    mdInsert.textContent = 'Insert';
+    var mdCancel = document.createElement('button');
+    mdCancel.type = 'button';
+    mdCancel.className = 'btn';
+    mdCancel.textContent = 'Cancel';
+    function mdClose() { mdPanel.hidden = true; mdText.value = ''; }
+    mdInsert.addEventListener('click', function () {
+      if (mdText.value.trim()) { cmd('insertHTML', mdToHtml(mdText.value)); }
+      mdClose();
+    });
+    mdCancel.addEventListener('click', mdClose);
+    mdText.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); mdClose(); } });
+    mdBtns.appendChild(mdInsert);
+    mdBtns.appendChild(mdCancel);
+    mdPanel.appendChild(mdHelp);
+    mdPanel.appendChild(mdText);
+    mdPanel.appendChild(mdBtns);
+
     var source = false;
     function toggleSource() {
       source = !source;
@@ -281,6 +450,14 @@
         return;
       }
       var html = cd.getData('text/html');
+      var plain = cd.getData('text/plain');
+      // Plain Markdown (from an editor) or Markdown with only layout tags (e.g. code copied from VS Code): convert it.
+      if (plain && looksLikeMd(plain) && (!html || !/<(h[1-6]|ul|ol|li|a|strong|em|b|i|blockquote|img|p)[\s>]/i.test(html))) {
+        e.preventDefault();
+        document.execCommand('insertHTML', false, mdToHtml(plain));
+        sync();
+        return;
+      }
       if (html) { e.preventDefault(); document.execCommand('insertHTML', false, cleanPasted(html)); sync(); }
     });
     ed.addEventListener('keydown', function (e) {
@@ -291,6 +468,7 @@
     ta.hidden = true;
     ta.parentNode.insertBefore(wrap, ta);
     wrap.appendChild(bar);
+    wrap.appendChild(mdPanel);
     wrap.appendChild(ed);
     wrap.appendChild(ta);
     wrap.appendChild(picker);
